@@ -647,7 +647,7 @@
 
         async function initSupabase() {
             try {
-                supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                supabase = window.supabaseCreateClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
                 // Get the last touch ID so we don't replay old touches
                 const { data: existing } = await supabase
@@ -795,33 +795,17 @@
             if (target && target.click) target.click();
         }, { passive: false });
 
-        // ========== LOAD SUPABASE ASYNC ==========
-        // Load Supabase separately so it doesn't block core vibration
-        const supabaseScript = document.createElement('script');
-        supabaseScript.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js';
-        supabaseScript.onload = function() {
-            // Debug: check what's available
-            console.log('Supabase script loaded');
-            console.log('window.supabase:', window.supabase);
-            console.log('window.Supabase:', window.Supabase);
-
-            // Try different possible exports
-            if (window.supabase && window.supabase.createClient) {
+        // ========== LOAD SUPABASE AS ES MODULE ==========
+        async function loadSupabase() {
+            try {
+                const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2');
+                window.supabaseCreateClient = createClient;
                 initSupabase();
-            } else if (window.Supabase && window.Supabase.createClient) {
-                window.supabase = window.Supabase;
-                initSupabase();
-            } else {
-                // Show what's actually available
-                const keys = window.supabase ? Object.keys(window.supabase).join(', ') : 'undefined';
-                connectionText.textContent = 'Keys: ' + keys.substring(0, 100);
-                console.log('window.supabase keys:', keys);
+            } catch (err) {
+                connectionText.textContent = 'Failed to load Supabase: ' + err.message;
             }
-        };
-        supabaseScript.onerror = function() {
-            connectionText.textContent = 'Remote connection unavailable — local touch still works';
-        };
-        document.body.appendChild(supabaseScript);
+        }
+        loadSupabase();
     </script>
 </body>
-</html>
+    </html>
