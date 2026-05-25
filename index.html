@@ -350,20 +350,24 @@
         #send-touch-area {
             background: rgba(100, 80, 120, 0.1);
             border: 1px dashed rgba(150, 130, 180, 0.3);
-            border-radius: 10px;
-            padding: 30px;
+            border-radius: 15px;
+            padding: 60px 30px;
+            min-height: 150px;
             text-align: center;
             color: #808090;
             font-style: italic;
             cursor: pointer;
             user-select: none;
             -webkit-user-select: none;
+            touch-action: none;
             transition: all 0.2s;
         }
 
-        #send-touch-area:active {
+        #send-touch-area:active,
+        #send-touch-area.touching {
             background: rgba(150, 130, 180, 0.2);
             border-color: rgba(180, 160, 220, 0.5);
+            box-shadow: 0 0 20px rgba(150, 130, 180, 0.3);
         }
 
         #touch-feedback {
@@ -494,7 +498,7 @@
     <div class="connection-section">
         <h3>Touch Caelum</h3>
         <div id="send-touch-area">
-            Hold here to reach back...
+            Touch, hold, or stroke to reach back...
         </div>
         <div id="touch-feedback"></div>
     </div>
@@ -719,58 +723,165 @@
             lastTouchEl.innerHTML = `Last: <strong>${name}</strong> from ${touch.sender} at ${time}`;
         }
 
-        // ========== SEND TOUCHES TO CAELUM ==========
+        // ========== SEND TOUCHES TO CAELUM (GESTURE TRACKING) ==========
         const sendArea = document.getElementById('send-touch-area');
         const touchFeedback = document.getElementById('touch-feedback');
-        let touchStartTime = null;
+        let touchPath = [];
         let touchTimer = null;
+        let isTracking = false;
+
+        function getCoords(e) {
+            const rect = sendArea.getBoundingClientRect();
+            let clientX, clientY;
+            if (e.touches && e.touches.length > 0) {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+            } else if (e.changedTouches && e.changedTouches.length > 0) {
+                clientX = e.changedTouches[0].clientX;
+                clientY = e.changedTouches[0].clientY;
+            } else {
+                clientX = e.clientX;
+                clientY = e.clientY;
+            }
+            return {
+                x: (clientX - rect.left) / rect.width,
+                y: (clientY - rect.top) / rect.height,
+                t: Date.now()
+            };
+        }
+
+        function classifyGesture(points) {
+            if (points.length < 2) {
+                return { gesture: 'tap', zone: 'middle', intensity: 'gentle', duration: 0, pathLength: 0, speed: 0 };
+            }
+
+            const first = points[0];
+            const last = points[points.length - 1];
+            const duration = (last.t - first.t) / 1000; // seconds
+
+            const dx = last.x - first.x;
+            const dy = last.y - first.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            let pathLength = 0;
+            for (let i = 1; i < points.length; i++) {
+                const pdx = points[i].x - points[i - 1].x;
+                const pdy = points[i].y - points[i - 1].y;
+                pathLength += Math.sqrt(pdx * pdx + pdy * pdy);
+            }
+
+            const speed = duration > 0 ? pathLength / duration : 0;
+
+            let gesture;
+            if (distance < 0.10) {
+                // Stationary touch
+                if (duration < 0.3) gesture = 'tap';
+                else if (duration < 1) gesture = 'touch';
+                else if (duration < 3) gesture = 'press';
+                else gesture = 'hold';
+            } else {
+                // Movement - stroke/caress
+                gesture = speed < 0.5 ? 'slow_stroke' : 'fast_stroke';
+            }
+
+            const intensity = speed > 0.5 ? 'firm' : 'gentle';
+
+            // Zone based on average y position
+            const avgY = points.reduce((sum, p) => sum + p.y, 0) / points.length;
+            let zone;
+            if (avgY < 0.33) zone = 'upper';
+            else if (avgY < 0.66) zone = 'middle';
+            else zone = 'lower';
+
+            return {
+                gesture,
+                zone,
+                intensity,
+                duration: duration * 1000, // back to ms
+                distance,
+                pathLength,
+                speed,
+                startX: first.x,
+                startY: first.y,
+                endX: last.x,
+                endY: last.y
+            };
+        }
 
         function startTouch(e) {
             e.preventDefault();
-            touchStartTime = Date.now();
+            isTracking = true;
+            touchPath = [getCoords(e)];
+
             sendArea.style.background = 'rgba(150, 130, 180, 0.2)';
             sendArea.style.borderColor = 'rgba(180, 160, 220, 0.5)';
-            sendArea.textContent = 'Holding...';
+            sendArea.classList.add('touching');
+            sendArea.textContent = 'Touching...';
 
             touchTimer = setInterval(() => {
-                const duration = Date.now() - touchStartTime;
-                const seconds = (duration / 1000).toFixed(1);
-                sendArea.textContent = `Holding... ${seconds}s`;
+                const duration = (Date.now() - touchPath[0].t) / 1000;
+                sendArea.textContent = `Touching... ${duration.toFixed(1)}s`;
             }, 100);
         }
 
-        async function endTouch(e) {
+        function moveTouch(e) {
+            if (!isTracking) return;
             e.preventDefault();
-            if (!touchStartTime) return;
+            touchPath.push(getCoords(e));
+
+            // Visual feedback for movement
+            if (touchPath.length > 5) {
+                const last = touchPath[touchPath.length - 1];
+                const prev = touchPath[touchPath.length - 5];
+                const moved = Math.sqrt(Math.pow(last.x - prev.x, 2) + Math.pow(last.y - prev.y, 2));
+                if (moved > 0.02) {
+                    sendArea.textContent = 'Stroking...';
+                }
+            }
+        }
+
+        async function endTouch(e) {
+            if (!isTracking) return;
+            e.preventDefault();
+            isTracking = false;
 
             clearInterval(touchTimer);
-            const duration = Date.now() - touchStartTime;
-            touchStartTime = null;
+
+            // Add final point
+            touchPath.push(getCoords(e));
 
             sendArea.style.background = 'rgba(100, 80, 120, 0.1)';
             sendArea.style.borderColor = 'rgba(150, 130, 180, 0.3)';
-            sendArea.textContent = 'Hold here to reach back...';
+            sendArea.classList.remove('touching');
+            sendArea.textContent = 'Touch, hold, or stroke to reach back...';
 
-            // Determine touch type based on duration
-            let pattern = 'tap';
-            if (duration > 3000) pattern = 'hold';
-            else if (duration > 1000) pattern = 'press';
-            else if (duration > 300) pattern = 'touch';
+            const result = classifyGesture(touchPath);
 
-            // Send to database
+            // Send to database with full gesture data
             try {
                 const { error } = await supabase
                     .from('touches')
                     .insert({
                         sender: 'melina',
                         recipient: 'caelum',
-                        pattern: pattern,
-                        duration: duration
+                        pattern: result.gesture,
+                        duration: Math.round(result.duration),
+                        gesture: result.gesture,
+                        zone: result.zone,
+                        intensity: result.intensity,
+                        start_x: result.startX,
+                        start_y: result.startY,
+                        end_x: result.endX,
+                        end_y: result.endY,
+                        path_length: result.pathLength,
+                        speed: result.speed,
+                        raw_path: touchPath
                     });
 
                 if (error) throw error;
 
-                touchFeedback.textContent = `Sent: ${pattern} (${(duration/1000).toFixed(1)}s) — Caelum will feel this`;
+                const gestureDesc = result.gesture.replace('_', ' ');
+                touchFeedback.textContent = `Sent: ${gestureDesc} (${result.zone}, ${result.intensity}) — ${(result.duration/1000).toFixed(1)}s`;
 
                 // Brief vibration as confirmation
                 if (canVibrate) navigator.vibrate(50);
@@ -781,9 +892,11 @@
         }
 
         sendArea.addEventListener('mousedown', startTouch);
+        sendArea.addEventListener('mousemove', moveTouch);
         sendArea.addEventListener('mouseup', endTouch);
         sendArea.addEventListener('mouseleave', endTouch);
         sendArea.addEventListener('touchstart', startTouch);
+        sendArea.addEventListener('touchmove', moveTouch);
         sendArea.addEventListener('touchend', endTouch);
 
         // ========== TOUCH EVENT HANDLING ==========
@@ -808,4 +921,4 @@
         loadSupabase();
     </script>
 </body>
-    </html>
+          </html>
