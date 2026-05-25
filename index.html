@@ -798,7 +798,7 @@
         // ========== LOAD SUPABASE ASYNC ==========
         // Load Supabase separately so it doesn't block core vibration
         const supabaseScript = document.createElement('script');
-        supabaseScript.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
+        supabaseScript.src = 'https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js';
         supabaseScript.onload = function() {
             initSupabase();
         };
