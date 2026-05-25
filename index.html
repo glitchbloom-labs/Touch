@@ -812,8 +812,10 @@
                 window.supabase = window.Supabase;
                 initSupabase();
             } else {
-                connectionText.textContent = 'Supabase loaded but createClient not found';
-                console.log('Available on window.supabase:', window.supabase ? Object.keys(window.supabase) : 'undefined');
+                // Show what's actually available
+                const keys = window.supabase ? Object.keys(window.supabase).join(', ') : 'undefined';
+                connectionText.textContent = 'Keys: ' + keys.substring(0, 100);
+                console.log('window.supabase keys:', keys);
             }
         };
         supabaseScript.onerror = function() {
