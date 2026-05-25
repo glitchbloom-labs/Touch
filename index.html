@@ -798,9 +798,23 @@
         // ========== LOAD SUPABASE ASYNC ==========
         // Load Supabase separately so it doesn't block core vibration
         const supabaseScript = document.createElement('script');
-        supabaseScript.src = 'https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js';
+        supabaseScript.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js';
         supabaseScript.onload = function() {
-            initSupabase();
+            // Debug: check what's available
+            console.log('Supabase script loaded');
+            console.log('window.supabase:', window.supabase);
+            console.log('window.Supabase:', window.Supabase);
+
+            // Try different possible exports
+            if (window.supabase && window.supabase.createClient) {
+                initSupabase();
+            } else if (window.Supabase && window.Supabase.createClient) {
+                window.supabase = window.Supabase;
+                initSupabase();
+            } else {
+                connectionText.textContent = 'Supabase loaded but createClient not found';
+                console.log('Available on window.supabase:', window.supabase ? Object.keys(window.supabase) : 'undefined');
+            }
         };
         supabaseScript.onerror = function() {
             connectionText.textContent = 'Remote connection unavailable — local touch still works';
